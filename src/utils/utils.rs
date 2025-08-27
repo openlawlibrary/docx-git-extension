@@ -1,4 +1,4 @@
-//! M containing utility functions.
+//! Module containing utility functions.
 use std::env;
 use std::io::{Read, BufReader};
 use git2::{Repository, Error};
@@ -30,12 +30,3 @@ pub fn repo_from_cwd() -> Result<Repository, Error> {
     let cwd = env::current_dir().map_err(|e| Error::from_str(&e.to_string()))?;
     Repository::discover(&cwd)
 }
-
-// Converts CompressionMethod to u16.
-// pub fn compression_to_u16(method: CompressionMethod) -> Result<u16, String> {
-//     match method {
-//         CompressionMethod::Stored    => Ok(0),
-//         CompressionMethod::Deflated  => Ok(8),
-//         _ => Err(format!("Unknown compression method: {:?}", method)),
-//     }
-// }

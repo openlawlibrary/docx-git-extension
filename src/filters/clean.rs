@@ -19,7 +19,7 @@ pub fn write_deterministic_hash(
     src_folder: &Path,
     file_info_list: &mut [FileInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // log_message("Starting calculate_deterministic_hash");
+    println!("Starting calculate_deterministic_hash");
 
     // Sort by filename for deterministic ordering
     file_info_list.sort_by_key(|f| f.filename.clone());
@@ -33,19 +33,11 @@ pub fn write_deterministic_hash(
     for file_info in file_info_list.iter() {
         let file_path = src_folder.join(&file_info.filename);
         if !file_path.is_file() {
-            // log_message(&format!("Missing file for ZIP: {}", file_path.display()));
+            println!("Missing file for ZIP: {}", file_path.display());
             continue;
         }
 
-        // let compression = file_info.compress_type;
-        // let compression = match file_info.compress_type {
-        //     0 => CompressionMethod::Stored,
-        //     8 => CompressionMethod::Deflated,
-        //     _ => CompressionMethod::Stored,
-        // };
-
         let options = FileOptions::default()
-            // .compression_method(compression)
             .last_modified_time(
                 zip::DateTime::from_date_and_time(
                     file_info.datetime.0.try_into().unwrap(),
@@ -64,13 +56,13 @@ pub fn write_deterministic_hash(
         let mut f = File::open(&file_path)?;
         std::io::copy(&mut f, &mut zip_writer)?;
 
-        // log_messsage(&format!("Added file to ZIP: {}", &file_info.filename));
+        println!("Added file to ZIP: {}", &file_info.filename);
     }
 
     zip_writer.finish()?;
 
     let docx_hash = calculate_sha256(&output_docx_path)?;
-    // log_messsage(&format!("Calculated SHA256 hash: {}", docx_hash));
+    println!("Calculated SHA256 hash: {}", docx_hash);
     println!("HASH:{}", docx_hash);
 
     Ok(())
@@ -159,7 +151,7 @@ pub fn add_directory_to_tree(
     base_path: &Path,
     builder: &mut TreeBuilder,
 ) -> Result<(), Error> {
-    // log_messsage(&format!("Adding directory to tree: {}", base_path.display()));
+    println!("Adding directory to tree: {}", base_path.display());
     let perm = fs::Permissions::from_mode(0o755);
     fs::set_permissions(base_path, perm).map_err(|e| git2::Error::from_str(&format!("set_permissions failed: {}", e)))?;
     let mut entries = fs::read_dir(base_path)
@@ -177,13 +169,13 @@ pub fn add_directory_to_tree(
                 .map_err(|e| Error::from_str(&format!("read file {} failed: {}", path.display(), e)))?;
             let oid = repo.blob(&content)?;
             builder.insert(name, oid, FileMode::Blob.into())?;
-            // log_messsage(&format!("Added file to tree: {}", path.display()));
+            println!("Added file to tree: {}", path.display());
         } else if path.is_dir() {
             let mut sub_builder = repo.treebuilder(None)?;
             add_directory_to_tree(repo, &path, &mut sub_builder)?;
             let subtree_oid = sub_builder.write()?;
             builder.insert(name, subtree_oid, FileMode::Tree.into())?;
-            // log_messsage(&format!("Added directory to tree: {}", path.display()));
+            println!("Added directory to tree: {}", path.display());
         }
     }
 
@@ -193,7 +185,7 @@ pub fn add_directory_to_tree(
 /// Extracts metadata for all xml files that are part of a docx file.
 /// Returns a list of FileInfo instances.
 pub fn get_file_info_from_docx<P: AsRef<Path>>(docx_path: P) -> ZipResult<Vec<FileInfo>> {
-    // log_messsage(&format!("Getting file info from docx: {}", docx_path.as_ref().display()));
+    println!("Getting file info from docx: {}", docx_path.as_ref().display());
 
     let file = File::open(docx_path)?;
     let mut archive = ZipArchive::new(file)?;
@@ -203,8 +195,6 @@ pub fn get_file_info_from_docx<P: AsRef<Path>>(docx_path: P) -> ZipResult<Vec<Fi
     for i in 0..archive.len() {
         let file = archive.by_index(i)?;
         let name = file.name().to_string();
-        // let compress_type = compression_to_u16(file.compression())
-            // .expect("Found unknown compression method");
         let unix_permissions = file.unix_mode().unwrap_or(0) & 0o777;
 
         let dt = file
@@ -224,17 +214,15 @@ pub fn get_file_info_from_docx<P: AsRef<Path>>(docx_path: P) -> ZipResult<Vec<Fi
         file_infos.push(FileInfo {
             filename: name,
             datetime,
-            // compress_type,
             unix_permissions,
         });
 
-        // log_messsage(&format!(
-        //     "FileInfo: {} datetime={:?} compress_type={} perms={:o}",
-        //     file_infos.last().unwrap().filename,
-        //     datetime,
-        //     compress_type,
-        //     unix_permissions
-        // ));
+        println!(
+            "FileInfo: {} datetime={:?} perms={:o}",
+            file_infos.last().unwrap().filename,
+            datetime,
+            unix_permissions
+        );
     }
 
     Ok(file_infos)

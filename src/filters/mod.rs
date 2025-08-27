@@ -25,7 +25,7 @@ pub struct FileInfo {
 /// (reference name, docx file hash and xml files metadata). Contents of the pointer file are 
 /// written to stdout and then to the staged file.
 pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // log_message("Starting clean_filter");
+    println!("Starting clean_filter");
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -50,7 +50,7 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
 
     let refname = format!("refs/docx/{}", base_name_str);
     println!("DOCX-POINTER:{}", refname);
-    // log_message(&format!("DOCX pointer: {}", refname));
+    println!("DOCX pointer: {}", refname);
 
     let repo = repo_from_cwd()?;
     let mut docx_metadata = get_file_info_from_docx(&docx_path)?;
@@ -60,9 +60,9 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
     if let Some(repo_path) = repo.path().to_str() {
         let tree_oid_file = PathBuf::from(repo_path).join("docx-tree-oid");
         if let Err(e) = fs::write(&tree_oid_file, format!("{}\n", tree_oid)) {
-            // log_message(&format!("Warning: failed to write tree_oid_file: {}", e));
+            println!("Warning: failed to write tree_oid_file: {}", e);
         } else {
-            // log_message(&format!("Wrote tree_oid to {}", tree_oid_file.display()));
+            println!("Wrote tree_oid to {}", tree_oid_file.display());
         }
     }
 
@@ -72,10 +72,9 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
             "METADATA:{}|({}, {}, {}, {}, {}, {})|{}",
             meta.filename,
             dt.0, dt.1, dt.2, dt.3, dt.4, dt.5,
-            // meta.compress_type,
             meta.unix_permissions
         );
-        // log_message(&format!("Output METADATA line for {}", meta.filename));
+        println!("Output METADATA line for {}", meta.filename);
     }
 
     Ok(())
@@ -86,8 +85,6 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
 /// a pointer file containing metadata necessary for docx reconstruction. Once the docx is 
 /// reconstructed, its contents are written to stdout and then to the file that is checked out.
 pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
-    // log_message("docx_smudge.rs started");
-
     let stdin = io::stdin();
     let all_lines: Vec<String> = stdin.lock().lines().collect::<Result<_, _>>()?;
     let mut line_iter = all_lines.into_iter();
@@ -95,13 +92,13 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     let pointer_line = match line_iter.next() {
         Some(line) => line,
         None => {
-            // log_message("Missing DOCX-POINTER");
+            println!("Missing DOCX-POINTER");
             return Ok(());
         }
     };
 
     if !pointer_line.starts_with("DOCX-POINTER:") {
-        // log_message("Missing DOCX-POINTER");
+        println!("Missing DOCX-POINTER");
         println!("{}", pointer_line);
         for line in line_iter {
             println!("{}", line);
@@ -114,13 +111,13 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     let hash_line = match line_iter.next() {
         Some(line) => line,
         None => {
-            // log_message("Missing HASH");
+            println!("Missing HASH");
             return Ok(());
         }
     };
 
     if !hash_line.starts_with("HASH:") {
-        // log_message("Missing HASH");
+        println!("Missing HASH");
         println!("{}", hash_line);
         for line in line_iter {
             println!("{}", line);
@@ -134,7 +131,7 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     for line in line_iter {
         let trimmed = line.trim();
         if !trimmed.starts_with("METADATA:") {
-            // log_message("Unexpected input line (missing METADATA)");
+            println!("Unexpected input line (missing METADATA)");
             println!("{}", hash_line);
             println!("{}", line);
             continue;
@@ -142,14 +139,14 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
 
         let metadata: Vec<&str> = trimmed.splitn(2, ':').nth(1).unwrap().split('|').collect();
         if metadata.len() != 4 {
-            // log_message("Invalid METADATA format");
+            println!("Invalid METADATA format");
             continue;
         }
 
         let datetime = match parse_zip_datetime(metadata[1]) {
             Ok(dt) => dt,
             Err(e) => {
-                // log_message(&format!("Invalid datetime for '{}': {}", metadata[0], e));
+                println!("Invalid datetime for '{}': {}", metadata[0], e);
                 continue;
             }
         };
@@ -157,17 +154,16 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
         let file_info = FileInfo {
             filename: metadata[0].to_string(),
             datetime,
-            // compress_type: metadata[2].parse().unwrap_or(0),
             unix_permissions: metadata[3].parse().unwrap_or(0),
         };
 
         file_info_list.push(file_info);
     }
 
-    // log_message(&format!(
-    //     "Parsed {} metadata entries",
-    //     file_info_list.len()
-    // ));
+    println!(
+        "Parsed {} metadata entries",
+        file_info_list.len()
+    );
 
     match repo_from_cwd() {
         Ok(repo) => {

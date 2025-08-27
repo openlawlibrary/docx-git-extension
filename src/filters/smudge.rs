@@ -20,7 +20,7 @@ pub fn create_docx_from_commit(
     expected_hash: &str,
     file_info_list: &[FileInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // log_messsage(&format!("Creating DOCX from ref '{}'", repub fname));
+    println!("Creating DOCX from ref '{}'", refname);
 
     let reference = repo
         .find_reference(refname)
@@ -32,17 +32,17 @@ pub fn create_docx_from_commit(
             let commit = object
                 .into_commit()
                 .map_err(|_| "Expected commit object")?;
-            // log_messsage(&format!(
-            //     "Resolved {} to commit {}",
-            //     refname,
-            //     commit.id()
-            // ));
+            println!(
+                "Resolved {} to commit {}",
+                refname,
+                commit.id()
+            );
             commit.tree()?
         }
         Some(ObjectType::Tree) => {
             match object.into_tree() {
                 Ok(tree) => {
-                    // log_messsage(&format!("Resolved {} to tree {}", repub fname, tree.id()));
+                    println!("Resolved {} to tree {}", refname, tree.id());
                     tree
                 }
                 Err(obj) => {
@@ -72,7 +72,7 @@ pub fn create_docx_from_commit(
         .to_owned() + ".docx";
     let docx_path = tmp_path.join(&docx_name);
 
-    // log_messsage(&format!("docx_name {}", docx_name));
+    println!("docx_name {}", docx_name);
 
     rezip_preserving_metadata(tmp_path, file_info_list, &docx_path)?;
 
@@ -80,13 +80,13 @@ pub fn create_docx_from_commit(
     let mut buffer = Vec::new();
 
     if expected_hash == rezipped_sha {
-        // log_messsage(&format!("Hash matched: {}", rezipped_sha));
+        println!("Hash matched: {}", rezipped_sha);
         File::open(&docx_path)?.read_to_end(&mut buffer)?;
     } else {
-        // log_messsage(&format!(
-        //     "Hash mismatch. Expected: {}, Got: {}",
-        //     expected_hash, rezipped_sha
-        // ));
+        println!(
+            "Hash mismatch. Expected: {}, Got: {}",
+            expected_hash, rezipped_sha
+        );
     }
     
     std::io::stdout().write_all(&buffer)?;
@@ -98,7 +98,7 @@ pub fn create_docx_from_commit(
 pub fn extract_tree(repo: &Repository, tree: &Tree, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(path)?;
 
-    // log_messsage(&format!("Extracting tree to {}", path.display()));
+    println!("Extracting tree to {}", path.display());
 
     for entry in tree.iter() {
         let name = entry.name().unwrap_or("<invalid>");
@@ -113,10 +113,10 @@ pub fn extract_tree(repo: &Repository, tree: &Tree, path: &Path) -> Result<(), B
             Some(ObjectType::Blob) => {
                 let blob = obj.as_blob().expect("Expected blob");
                 fs::write(&full_path, blob.content())?;
-                // log_messsage(&format!("Extracted file: {}", full_path.display()));
+                println!("Extracted file: {}", full_path.display());
             }
             _ => {
-                // log_messsage(&format!("Skipping non-blob/tree object: {}", name));
+                println!("Skipping non-blob/tree object: {}", name);
             }
         }
     }
@@ -152,7 +152,7 @@ pub fn rezip_preserving_metadata(
     file_info_list: &[FileInfo],
     output_docx_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // log_messsage(&format!("Creating ZIP at {}", output_docx_path.display()));
+    println!("Creating ZIP at {}", output_docx_path.display());
 
     // Sort for deterministic ordering by filename
     let mut sorted_files = file_info_list.to_vec();
@@ -173,20 +173,10 @@ pub fn rezip_preserving_metadata(
         ) {
             Ok(dt) => dt,
             Err(e) => {
-                // log_messsage(&format!("Invalid datetime for '{}': {:?}", file_info.filename, e));
+                println!("Invalid datetime for '{}': {:?}", file_info.filename, e);
                 continue;
             }
         };
-
-        // Map compress_type u16 to CompressionMethod
-        // let compress_type = match file_info.compress_type {
-        //     0 => CompressionMethod::Stored,
-        //     8 => CompressionMethod::Deflated,
-        //     other => {
-        //         // log_messsage(&format!("Unsupported compression type {} for '{}'", other, file_info.filename));
-        //         continue;
-        //     }
-        // };
 
         let permissions = file_info.unix_permissions;
 
@@ -200,13 +190,12 @@ pub fn rezip_preserving_metadata(
         File::open(&file_path)?.read_to_end(&mut contents)?;
 
         let options = FileOptions::default()
-            // .compression_method(compress_type)
             .last_modified_time(date_time)
             .unix_permissions(permissions);
 
         zip.start_file(&file_info.filename, options)?;
         zip.write_all(&contents)?;
-        // log_messsage(&format!("Added to ZIP: {} as {}", file_path.display(), file_info.filename));
+        println!("Added to ZIP: {} as {}", file_path.display(), file_info.filename);
     }
 
     zip.finish()?;
