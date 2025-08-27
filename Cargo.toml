@@ -1,0 +1,11 @@
+[package]
+name = "docx_git_extension"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+git2 = "0.20.2"
+zip = "0.6"
+chrono = "0.4"
+sha2 = "0.10"
+tempfile = "3"
