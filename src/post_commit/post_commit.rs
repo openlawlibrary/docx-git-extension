@@ -1,13 +1,53 @@
-//! Post-commit module contains logic for commiting a tree
-//! that is created during docx unzip, as well as creating
-//! a custom reference that contains a commit oid.
+//! This module contains logic of post commit hook.
 
 use git2::{Oid, Repository, Signature, Tree, Delta};
 use std::fs;
 use std::path::Path;
+use log::{info, warn, error};
+
+/// Post-commit hook contains logic for commiting a tree that is created during docx unzip,
+/// as well as creating a custom reference that contains a commit oid.
+pub fn post_commit() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = Repository::discover(".").expect("Not a git repository");
+
+    let modified_files = get_modified_docx_files(&repo);
+
+    if modified_files.is_empty() {
+        warn!("No .docx files added or modified in last commit.");
+        // TODO: return?
+    }
+
+    for path in modified_files {
+        info!("📄 Processing {}...", path);
+        let pointer = match read_pointer_file_from_commit(&repo, &path) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let refname = match parse_ref_from_pointer(&pointer) {
+            Some(r) => r,
+            None => {
+                // TODO: extend print
+                warn!("⚠️ No DOCX-POINTER ref found in {}", path);
+                continue;
+            }
+        };
+
+        match resolve_tree(&repo, &refname) {
+            Ok(tree) => {
+                if let Some(commit_oid) = create_commit(&repo, &path, &tree) {
+                    update_ref(&repo, &refname, commit_oid);
+                }
+            },
+            Err(e) => error!("❌ Error resolving tree for {}: {}", refname, e),
+        }
+    }
+
+    Ok(())
+}
 
 /// Find and return changed files in two lists: - added/modified and deleted files list.
-pub fn get_modified_docx_files(repo: &Repository) -> (Vec<String>, Vec<String>) {
+pub fn get_modified_docx_files(repo: &Repository) -> Vec<String> {
     let head = repo.head().unwrap().peel_to_commit().unwrap();
     let tree = head.tree().unwrap();
 
@@ -20,7 +60,6 @@ pub fn get_modified_docx_files(repo: &Repository) -> (Vec<String>, Vec<String>) 
     };
 
     let mut modified = vec![];
-    let mut deleted = vec![];
 
     diff.foreach(
         &mut |delta, _| {
@@ -35,7 +74,6 @@ pub fn get_modified_docx_files(repo: &Repository) -> (Vec<String>, Vec<String>) 
                 if path_str.ends_with(".docx") {
                     match status {
                         Delta::Modified | Delta::Added => modified.push(path_str.to_string()),
-                        Delta::Deleted => deleted.push(path_str.to_string()),
                         _ => {}
                     }
                 }
@@ -48,7 +86,7 @@ pub fn get_modified_docx_files(repo: &Repository) -> (Vec<String>, Vec<String>) 
         None,
     ).unwrap();
 
-    (modified, deleted)
+    modified
 }
 
 /// Read pointer file at specific revision.
@@ -107,11 +145,11 @@ pub fn create_commit(repo: &Repository, path: &str, tree: &Tree) -> Option<Oid> 
         &parents_refs.iter().collect::<Vec<_>>(),
     ) {
         Ok(oid) => {
-            println!("✅ Created commit {} (HEAD)", oid);
+            info!("✅ Created commit {} (HEAD)", oid);
             Some(oid)
         },
         Err(e) => {
-            eprintln!("❌ Error creating commit for {}: {}", path, e);
+            error!("❌ Error creating commit for {}: {}", path, e);
             None
         },
     }
@@ -121,13 +159,13 @@ pub fn create_commit(repo: &Repository, path: &str, tree: &Tree) -> Option<Oid> 
 pub fn update_ref(repo: &Repository, refname: &str, commit_oid: Oid) {
     if repo.find_reference(refname).is_ok() {
         if let Err(e) = repo.find_reference(refname).and_then(|mut r| r.delete()) {
-            eprintln!("❌ Failed to delete existing ref {}: {}", refname, e);
+            error!("❌ Failed to delete existing ref {}: {}", refname, e);
             return;
         }
     }
 
     match repo.reference(refname, commit_oid, true, "Updating DOCX ref") {
-        Ok(_) => println!("✅ Updated ref {} to {}", refname, commit_oid),
-        Err(e) => eprintln!("❌ Failed to update ref {}: {}", refname, e),
+        Ok(_) => info!("✅ Updated ref {} to {}", refname, commit_oid),
+        Err(e) => error!("❌ Failed to update ref {}: {}", refname, e),
     }
 }

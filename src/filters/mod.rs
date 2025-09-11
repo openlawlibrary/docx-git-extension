@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use crate::utils::utils::repo_from_cwd;
 use crate::filters::smudge::{create_docx_from_commit, parse_zip_datetime};
-use crate::filters::clean::{save_docx_as_git_tree, get_file_info_from_docx};
+use crate::filters::clean::{save_docx_as_git_tree, get_file_info_from_docx, get_eocd_record, write_eocd};
+use log::{info, warn, error};
 
 pub mod clean;
 pub mod smudge;
@@ -14,9 +15,12 @@ pub mod smudge;
 /// A structure that contains metadata of xml file wihin a docx.
 #[derive(Debug, Clone)]
 pub struct FileInfo {
-    filename: String,
-    datetime: (u16, u16, u16, u16, u16, u16),
-    unix_permissions: u32,
+    /// docx file name
+    pub filename: String,
+    /// Timestamp represented as a tuple of u16 integers
+    pub datetime: (u16, u16, u16, u16, u16, u16),
+    /// File permissions necessary for deterministic zip
+    pub unix_permissions: u32,
 }
 
 /// Clean filter entry point. Clean filter functionality is triggered during file staging -
@@ -25,8 +29,6 @@ pub struct FileInfo {
 /// (reference name, docx file hash and xml files metadata). Contents of the pointer file are 
 /// written to stdout and then to the staged file.
 pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting clean_filter");
-
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         writeln!(io::stderr(), "Usage: clean_filter <path_to_docx>")?;
@@ -35,8 +37,8 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
 
     let docx_path = Path::new(docx_path_str);
     match docx_path.to_str() {
-        Some(path_str) => println!("{}", &format!("docx_path: {}", path_str)),
-        None => println!("docx_path contains invalid UTF-8"),
+        Some(path_str) => info!("{}", &format!("docx_path: {}", path_str)),
+        None => error!("docx_path contains invalid UTF-8"),
     }
     let base_name = docx_path.with_extension(""); // Remove extension
     let base_name_str = base_name
@@ -50,7 +52,7 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
 
     let refname = format!("refs/docx/{}", base_name_str);
     println!("DOCX-POINTER:{}", refname);
-    println!("DOCX pointer: {}", refname);
+    // TODO: log pointer
 
     let repo = repo_from_cwd()?;
     let mut docx_metadata = get_file_info_from_docx(&docx_path)?;
@@ -60,9 +62,9 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
     if let Some(repo_path) = repo.path().to_str() {
         let tree_oid_file = PathBuf::from(repo_path).join("docx-tree-oid");
         if let Err(e) = fs::write(&tree_oid_file, format!("{}\n", tree_oid)) {
-            println!("Warning: failed to write tree_oid_file: {}", e);
+            warn!("Warning: failed to write tree_oid_file: {}", e);
         } else {
-            println!("Wrote tree_oid to {}", tree_oid_file.display());
+            info!("Wrote tree_oid to {}", tree_oid_file.display());
         }
     }
 
@@ -74,9 +76,10 @@ pub fn clean_filter(docx_path_str: &str) -> Result<(), Box<dyn std::error::Error
             dt.0, dt.1, dt.2, dt.3, dt.4, dt.5,
             meta.unix_permissions
         );
-        println!("Output METADATA line for {}", meta.filename);
+        info!("Output METADATA line for {}", meta.filename);
     }
-
+    let eocd_record = get_eocd_record(docx_path_str);
+    let _ = write_eocd(&eocd_record?);
     Ok(())
 }
 
@@ -92,16 +95,18 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     let pointer_line = match line_iter.next() {
         Some(line) => line,
         None => {
-            println!("Missing DOCX-POINTER");
+            // TODO: decide if exit should be here?
+            error!("Missing DOCX-POINTER");
             return Ok(());
         }
     };
 
     if !pointer_line.starts_with("DOCX-POINTER:") {
-        println!("Missing DOCX-POINTER");
-        println!("{}", pointer_line);
+        error!("Missing DOCX-POINTER");
+        // TODO: decide if exit should be here?
+        // println!("{}", pointer_line);
         for line in line_iter {
-            println!("{}", line);
+            error!("{}", line);
         }
         return Ok(());
     }
@@ -110,17 +115,19 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
 
     let hash_line = match line_iter.next() {
         Some(line) => line,
+        // TODO: decide if exit should be here?
         None => {
-            println!("Missing HASH");
+            error!("Missing HASH");
             return Ok(());
         }
     };
 
     if !hash_line.starts_with("HASH:") {
-        println!("Missing HASH");
-        println!("{}", hash_line);
+        error!("Missing HASH");
+        // TODO: decide if exit should be here?
+        // println!("{}", hash_line);
         for line in line_iter {
-            println!("{}", line);
+            error!("{}", line);
         }
         return Ok(());
     }
@@ -131,22 +138,25 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     for line in line_iter {
         let trimmed = line.trim();
         if !trimmed.starts_with("METADATA:") {
-            println!("Unexpected input line (missing METADATA)");
-            println!("{}", hash_line);
-            println!("{}", line);
+            // TODO: decide if exit should be here?
+            error!("Unexpected input line (missing METADATA)");
+            // println!("{}", hash_line);
+            // println!("{}", line);
             continue;
         }
 
         let metadata: Vec<&str> = trimmed.splitn(2, ':').nth(1).unwrap().split('|').collect();
-        if metadata.len() != 4 {
-            println!("Invalid METADATA format");
+        if metadata.len() != 3 {
+            // TODO: decide if exit should be here?
+            error!("Invalid METADATA format {}", metadata.len());
             continue;
         }
 
         let datetime = match parse_zip_datetime(metadata[1]) {
             Ok(dt) => dt,
             Err(e) => {
-                println!("Invalid datetime for '{}': {}", metadata[0], e);
+            // TODO: decide if exit should be here?
+                error!("Invalid datetime for '{}': {}", metadata[0], e);
                 continue;
             }
         };
@@ -154,13 +164,13 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
         let file_info = FileInfo {
             filename: metadata[0].to_string(),
             datetime,
-            unix_permissions: metadata[3].parse().unwrap_or(0),
+            unix_permissions: metadata[2].parse().unwrap_or(0),
         };
 
         file_info_list.push(file_info);
     }
 
-    println!(
+    info!(
         "Parsed {} metadata entries",
         file_info_list.len()
     );
@@ -168,11 +178,11 @@ pub fn smudge_filter() -> Result<(), Box<dyn std::error::Error>> {
     match repo_from_cwd() {
         Ok(repo) => {
             if let Err(e) = create_docx_from_commit(&repo, &refname, &expected_hash, &file_info_list) {
-                println!("{}", &format!("Error in create_docx_from_commit: {e:?}"));
+                error!("{}", &format!("Error in create_docx_from_commit: {e:?}"));
             }
         }
         Err(e) => {
-            println!("{}", &format!("Error opening repo: {e:?}"));
+            error!("{}", &format!("Error opening repo: {e:?}"));
         }
     }
 

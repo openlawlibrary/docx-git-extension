@@ -13,16 +13,17 @@ use zip::{write::FileOptions, ZipWriter};
 use std::convert::TryInto;
 use crate::filters::FileInfo;
 use crate::utils::utils::calculate_sha256;
+use log::{info, warn};
 
 /// Calculates deterministic hash of the docx file and writes it to pointer file.
 pub fn write_deterministic_hash(
     src_folder: &Path,
     file_info_list: &mut [FileInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting calculate_deterministic_hash");
+    info!("Starting calculate_deterministic_hash");
 
     // Sort by filename for deterministic ordering
-    file_info_list.sort_by_key(|f| f.filename.clone());
+    // file_info_list.sort_by_key(|f| f.filename.clone());
 
     let tmp_docx = NamedTempFile::new()?.keep()?;
     let output_docx_path = PathBuf::from(&tmp_docx.1);
@@ -33,7 +34,7 @@ pub fn write_deterministic_hash(
     for file_info in file_info_list.iter() {
         let file_path = src_folder.join(&file_info.filename);
         if !file_path.is_file() {
-            println!("Missing file for ZIP: {}", file_path.display());
+            warn!("Missing file for ZIP: {}", file_path.display());
             continue;
         }
 
@@ -56,13 +57,13 @@ pub fn write_deterministic_hash(
         let mut f = File::open(&file_path)?;
         std::io::copy(&mut f, &mut zip_writer)?;
 
-        println!("Added file to ZIP: {}", &file_info.filename);
+        info!("Added file to ZIP: {}", &file_info.filename);
     }
 
     zip_writer.finish()?;
 
     let docx_hash = calculate_sha256(&output_docx_path)?;
-    println!("Calculated SHA256 hash: {}", docx_hash);
+    info!("Calculated SHA256 hash: {}", docx_hash);
     println!("HASH:{}", docx_hash);
 
     Ok(())
@@ -151,7 +152,7 @@ pub fn add_directory_to_tree(
     base_path: &Path,
     builder: &mut TreeBuilder,
 ) -> Result<(), Error> {
-    println!("Adding directory to tree: {}", base_path.display());
+    info!("Adding directory to tree: {}", base_path.display());
     let perm = fs::Permissions::from_mode(0o755);
     fs::set_permissions(base_path, perm).map_err(|e| git2::Error::from_str(&format!("set_permissions failed: {}", e)))?;
     let mut entries = fs::read_dir(base_path)
@@ -169,13 +170,13 @@ pub fn add_directory_to_tree(
                 .map_err(|e| Error::from_str(&format!("read file {} failed: {}", path.display(), e)))?;
             let oid = repo.blob(&content)?;
             builder.insert(name, oid, FileMode::Blob.into())?;
-            println!("Added file to tree: {}", path.display());
+            info!("Added file to tree: {}", path.display());
         } else if path.is_dir() {
             let mut sub_builder = repo.treebuilder(None)?;
             add_directory_to_tree(repo, &path, &mut sub_builder)?;
             let subtree_oid = sub_builder.write()?;
             builder.insert(name, subtree_oid, FileMode::Tree.into())?;
-            println!("Added directory to tree: {}", path.display());
+            info!("Added directory to tree: {}", path.display());
         }
     }
 
@@ -185,8 +186,6 @@ pub fn add_directory_to_tree(
 /// Extracts metadata for all xml files that are part of a docx file.
 /// Returns a list of FileInfo instances.
 pub fn get_file_info_from_docx<P: AsRef<Path>>(docx_path: P) -> ZipResult<Vec<FileInfo>> {
-    println!("Getting file info from docx: {}", docx_path.as_ref().display());
-
     let file = File::open(docx_path)?;
     let mut archive = ZipArchive::new(file)?;
 
@@ -216,14 +215,41 @@ pub fn get_file_info_from_docx<P: AsRef<Path>>(docx_path: P) -> ZipResult<Vec<Fi
             datetime,
             unix_permissions,
         });
-
-        println!(
-            "FileInfo: {} datetime={:?} perms={:o}",
-            file_infos.last().unwrap().filename,
-            datetime,
-            unix_permissions
-        );
     }
 
     Ok(file_infos)
+}
+
+use std::io::Read;
+pub fn get_eocd_record(zip_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut file = File::open(zip_path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    // EOCD signature: 0x06054b50 (little-endian: 50 4b 05 06)
+    let signature = [0x50, 0x4b, 0x05, 0x06];
+
+    // Search backwards from the end for the EOCD signature
+    let pos = buffer
+        .windows(4)
+        .rposition(|window| window == signature)
+        .expect("EOCD signature not found in ZIP");
+
+    // EOCD is variable size; minimum 22 bytes + optional comment length
+    let comment_len = u16::from_le_bytes([buffer[pos + 20], buffer[pos + 21]]) as usize;
+    let eocd_size = 22 + comment_len;
+
+    let eocd_record = buffer[pos..pos + eocd_size].to_vec();
+    Ok(eocd_record)
+}
+
+use base64::{engine::general_purpose, Engine as _};
+pub fn write_eocd(eocd_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    // Convert EOCD bytes to Base64
+    let eocd_base64 = general_purpose::STANDARD.encode(eocd_bytes);
+    
+    // You can add other metadata before/after
+    println!("EOCD_BASE64:{}", eocd_base64);
+
+    Ok(())
 }

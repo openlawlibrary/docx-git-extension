@@ -1,0 +1,13 @@
+DOCX-POINTER:refs/docx/test_doc
+HASH:ce2c3d2c44fefef600981b4ab08680000348299473e78fc3aaa87ba0ff269698
+METADATA:[Content_Types].xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:_rels/.rels|(1980, 1, 1, 0, 0, 0)|0
+METADATA:docProps/app.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:docProps/core.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/_rels/document.xml.rels|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/document.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/fontTable.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/settings.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/styles.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/theme/theme1.xml|(1980, 1, 1, 0, 0, 0)|0
+METADATA:word/webSettings.xml|(1980, 1, 1, 0, 0, 0)|0

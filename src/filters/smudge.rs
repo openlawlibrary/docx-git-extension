@@ -10,6 +10,7 @@ use zip::{write::FileOptions, ZipWriter};
 use std::convert::TryInto;
 use crate::filters::FileInfo;
 use crate::utils::utils::calculate_sha256;
+use log::{info, error};
 
 /// Reads commit oid that is written to a custom reference and finds a 
 /// git tree that is referenced by the commit oid. Reconstructs the original
@@ -20,7 +21,7 @@ pub fn create_docx_from_commit(
     expected_hash: &str,
     file_info_list: &[FileInfo],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Creating DOCX from ref '{}'", refname);
+    info!("Creating DOCX from ref '{}'", refname);
 
     let reference = repo
         .find_reference(refname)
@@ -32,7 +33,7 @@ pub fn create_docx_from_commit(
             let commit = object
                 .into_commit()
                 .map_err(|_| "Expected commit object")?;
-            println!(
+            info!(
                 "Resolved {} to commit {}",
                 refname,
                 commit.id()
@@ -42,7 +43,7 @@ pub fn create_docx_from_commit(
         Some(ObjectType::Tree) => {
             match object.into_tree() {
                 Ok(tree) => {
-                    println!("Resolved {} to tree {}", refname, tree.id());
+                    info!("Resolved {} to tree {}", refname, tree.id());
                     tree
                 }
                 Err(obj) => {
@@ -72,7 +73,7 @@ pub fn create_docx_from_commit(
         .to_owned() + ".docx";
     let docx_path = tmp_path.join(&docx_name);
 
-    println!("docx_name {}", docx_name);
+    info!("docx_name {}", docx_name);
 
     rezip_preserving_metadata(tmp_path, file_info_list, &docx_path)?;
 
@@ -80,10 +81,10 @@ pub fn create_docx_from_commit(
     let mut buffer = Vec::new();
 
     if expected_hash == rezipped_sha {
-        println!("Hash matched: {}", rezipped_sha);
+        info!("Hash matched: {}", rezipped_sha);
         File::open(&docx_path)?.read_to_end(&mut buffer)?;
     } else {
-        println!(
+        error!(
             "Hash mismatch. Expected: {}, Got: {}",
             expected_hash, rezipped_sha
         );
@@ -98,7 +99,7 @@ pub fn create_docx_from_commit(
 pub fn extract_tree(repo: &Repository, tree: &Tree, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(path)?;
 
-    println!("Extracting tree to {}", path.display());
+    info!("Extracting tree to {}", path.display());
 
     for entry in tree.iter() {
         let name = entry.name().unwrap_or("<invalid>");
@@ -113,10 +114,10 @@ pub fn extract_tree(repo: &Repository, tree: &Tree, path: &Path) -> Result<(), B
             Some(ObjectType::Blob) => {
                 let blob = obj.as_blob().expect("Expected blob");
                 fs::write(&full_path, blob.content())?;
-                println!("Extracted file: {}", full_path.display());
+                info!("Extracted file: {}", full_path.display());
             }
             _ => {
-                println!("Skipping non-blob/tree object: {}", name);
+                error!("Skipping non-blob/tree object: {}", name);
             }
         }
     }
@@ -152,11 +153,11 @@ pub fn rezip_preserving_metadata(
     file_info_list: &[FileInfo],
     output_docx_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Creating ZIP at {}", output_docx_path.display());
+    info!("Creating ZIP at {}", output_docx_path.display());
 
     // Sort for deterministic ordering by filename
-    let mut sorted_files = file_info_list.to_vec();
-    sorted_files.sort_by_key(|f| f.filename.clone());
+    let sorted_files = file_info_list.to_vec();
+    // sorted_files.sort_by_key(|f| f.filename.clone());
 
     let file = File::create(output_docx_path)?;
     let mut zip = ZipWriter::new(file);
@@ -173,7 +174,7 @@ pub fn rezip_preserving_metadata(
         ) {
             Ok(dt) => dt,
             Err(e) => {
-                println!("Invalid datetime for '{}': {:?}", file_info.filename, e);
+                error!("Invalid datetime for '{}': {:?}", file_info.filename, e);
                 continue;
             }
         };
@@ -195,9 +196,39 @@ pub fn rezip_preserving_metadata(
 
         zip.start_file(&file_info.filename, options)?;
         zip.write_all(&contents)?;
-        println!("Added to ZIP: {} as {}", file_path.display(), file_info.filename);
+        info!("Added to ZIP: {} as {}", file_path.display(), file_info.filename);
     }
 
     zip.finish()?;
+    Ok(())
+}
+
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom};
+use base64::{engine::general_purpose, Engine as _};
+
+/// Patches the End-of-Central-Directory (EOCD) of a ZIP file with a Base64-encoded EOCD
+pub fn patch_eocd(zip_path: &str, encoded_eocd: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Decode Base64 EOCD into raw bytes
+    let eocd_bytes = general_purpose::STANDARD.decode(encoded_eocd)?;
+
+    // Open the ZIP file in read+write mode
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(zip_path)?;
+
+    // Calculate the offset where EOCD should start
+    let file_len = file.metadata()?.len();
+    let eocd_offset = file_len.checked_sub(eocd_bytes.len() as u64)
+        .ok_or("EOCD length is longer than the file itself")?;
+
+    // Seek to the EOCD position
+    file.seek(SeekFrom::Start(eocd_offset))?;
+
+    // Overwrite the EOCD with decoded bytes
+    file.write_all(&eocd_bytes)?;
+
+    println!("EOCD patched successfully for file: {}", zip_path);
     Ok(())
 }

@@ -1,0 +1,17 @@
+#!/bin/bash
+# save as git-push-wrapper.sh and make executable: chmod +x git-push-wrapper.sh
+
+# Run git push with all arguments
+git push "$@"
+status=$?
+
+# Detect if --set-upstream (or -u) was used
+for arg in "$@"; do
+    if [[ "$arg" == "--set-upstream" || "$arg" == "-u" ]]; then
+        echo "⚠️  New branch created with --set-upstream."
+        echo "Please run 'git push' again to push custom refs."
+        break
+    fi
+done
+
+exit $status
